@@ -1,0 +1,24 @@
+# 虚拟环境与缓存
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# 数据与训练产物
+data/OriginalData/
+data/CSVFiles/
+data/PTFiles/
+data/ModelData/
+data/LogData/
+data/TrainData/
+data/ABTest/
+logs/
+
+dist/
+*.zip
+
+# 配置覆盖层
+settings.local.json
+
+src/test.ipynb
+src/test.py

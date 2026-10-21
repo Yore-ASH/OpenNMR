@@ -1,0 +1,96 @@
+{
+	"paths": {
+		"parquet_dir": null,
+		"csv_dir": null,
+		"pt_dir": null,
+		"model_dir": null,
+		"log_data_dir": null,
+		"train_data_dir": null,
+		"console_log_dir": null
+	},
+
+	"device": {
+		"train_device": "auto"
+	},
+
+	"features": {
+		"splits": ["test", "train", "validation"],
+		"c13": {
+			"buckets": 880,
+			"ppm_min": 0.0,
+			"ppm_max": 220.0
+		},
+		"h1": {
+			"buckets": 280,
+			"ppm_min": 0.0,
+			"ppm_max": 14.0,
+			"dtype": "float16"
+		}
+	},
+
+	"labels": {
+		"benzene": "c1ccccc1",
+		"carbonyl": "[CX3]=[OX1]",
+		"hydroxyl": "[OX2H]",
+		"carboxyl": "C(=O)[OH]",
+		"ester": "C(=O)O[C]",
+		"amine": "[NX3]",
+		"nitro": "[$([NX3](=O)=O),$([NX3+](=O)[O-])]",
+		"nitrile": "C#N",
+		"alkene": "[CX3]=[CX3]",
+		"alkyne": "C#C",
+		"ether": "[OD2]([#6])[#6]",
+		"amide": "C(=O)[NX3]",
+		"halogen": "[F,Cl,Br,I]",
+		"sulfonyl": "S(=O)(=O)"
+	},
+
+	"model": {
+		"arch": "r4",
+		"c13": {
+			"kernel_sizes": [5, 5, 3],
+			"channels": [32, 64, 128]
+		},
+		"h1": {
+			"kernel_sizes": [5, 3],
+			"out_channels": [32, 64],
+			"scalar_hidden": 32
+		},
+		"r5": {
+			"head_channels": 32,
+			"head_h1_channels": 16
+		},
+		"head": {
+			"hidden": 512,
+			"dropout": 0.2
+		}
+	},
+
+	"training": {
+		"batch_size": 64,
+		"lr": 0.001,
+		"weight_decay": 0.0,
+		"epochs": 0,
+		"workers": 2,
+		"seed": 2026,
+		"focal": {
+			"alpha": 0.25,
+			"gamma": 2.0,
+			"per_class_alpha": true
+		},
+		"lr_scheduler": {
+			"name": "plateau",
+			"factor": 0.5,
+			"patience": 0
+		}
+	},
+
+	"data": {
+		"mmap": true
+	},
+
+	"archive": {
+		"save_every_epoch": false,
+		"epoch_metrics": true
+	}
+}
