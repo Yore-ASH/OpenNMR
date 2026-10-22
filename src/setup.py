@@ -60,6 +60,7 @@ DEFAULTS = {
     },
     "training": {
         "batch_size": 64,
+        "default_batch_rest": 0.0,
         "lr": 0.001,
         "weight_decay": 0.0,
         "epochs": 0,
@@ -172,6 +173,7 @@ class ModelCfg:
 @dataclass
 class TrainingCfg:
     batch_size: int
+    default_batch_rest: float
     lr: float
     weight_decay: float
     epochs: int
@@ -296,6 +298,7 @@ class Settings:
             },
             "training": {
                 "batch_size": self.training.batch_size,
+                "default_batch_rest": self.training.default_batch_rest,
                 "lr": self.training.lr,
                 "weight_decay": self.training.weight_decay,
                 "epochs": self.training.epochs,
@@ -553,6 +556,7 @@ def load_settings(settings_file: Path = None, local_file: Path = None) -> Settin
 
     training = TrainingCfg(
         batch_size=_as_int(merged, "training.batch_size", 64),
+        default_batch_rest=_as_float(merged, "training.default_batch_rest", 0.0),
         lr=_as_float(merged, "training.lr", 0.001),
         weight_decay=_as_float(merged, "training.weight_decay", 0.0),
         epochs=_as_int(merged, "training.epochs", 0),

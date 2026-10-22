@@ -68,6 +68,7 @@
 
 	"training": {
 		"batch_size": 64,
+		"default_batch_rest": 0,
 		"lr": 0.001,
 		"weight_decay": 0.0,
 		"epochs": 0,

@@ -139,13 +139,10 @@ def train_one_epoch(
         optimizer,
         device,
         epoch=0,
-        on_batch=None
+        on_batch=None,
+        rest_time : float = 0.0
         ):
-    """训练一个 epoch。
-
-    返回 (平均 loss, 是否被 Ctrl+C 中断)。中断时返回已经跑完的 batch 的平均 loss。
-    on_batch(batch_index, running_loss) 会每 100 个 batch 回调一次，用于写进度文件。
-    """
+    """训练一个 epoch。"""
 
     model.train()
 
@@ -156,6 +153,7 @@ def train_one_epoch(
 
     try:
         for X_batch, Y_batch in bar:
+
             X_batch = X_batch.to(device, non_blocking=True)
             Y_batch = Y_batch.to(device, non_blocking=True)
 
@@ -172,6 +170,10 @@ def train_one_epoch(
 
             if (on_batch is not None) and (n_batches % 100 == 0):
                 on_batch(n_batches, total_loss / n_batches)
+
+            # 设备休眠时间，我的顶配电脑啊....
+            if rest_time > 0:
+                time.sleep(rest_time)
 
     except KeyboardInterrupt:
         bar.close()
@@ -354,6 +356,14 @@ def parse_args(argv=None):
         help="随机种子（默认取 settings.json 的 training.seed，即 2026）；A/B 对比时固定它才有可比性",
     )
 
+    # 控制台加入参数
+    parser.add_argument(
+        "--rest",
+        default = None,
+        help = "单个 Batch 设备休息时间（秒，默认取 settings.json 的 training.default_batch_rest）",
+        type = float
+    )
+
     return parser.parse_args(argv)
 
 
@@ -367,6 +377,7 @@ def main(argv=None):
             "training.lr": args.lr,
             "training.workers": args.workers,
             "training.seed": args.seed,
+            "training.default_batch_rest": args.rest,
             "device.train_device": args.device,
             "model.arch": args.arch,
         }
@@ -389,6 +400,7 @@ def main(argv=None):
     lr_patience = SETTINGS.training.lr_patience
     max_epochs = SETTINGS.training.max_epochs
     workers = SETTINGS.training.workers
+    rest_time = SETTINGS.training.default_batch_rest
 
     device = _get_device()
 
@@ -707,6 +719,7 @@ def main(argv=None):
                 device,
                 epoch = epoch,
                 on_batch = report_batch,
+                rest_time = rest_time,
             )
 
             # 训练中途被打断

@@ -20,15 +20,14 @@ AB_TEST_SCRIPT =    ROOT / "scripts" / "ab_test.py"
 SETTINGS_SCRIPT =   ROOT / "scripts" / "check_settings.py"
 
 HELP = """OpenNMR-console.py
-python main_cli.py settings [--check]       打印 / 校验当前生效的配置
-python main_cli.py cuda-info                检查 torch / CUDA / 显卡是否可用
-python main_cli.py features                 从 parquet 生成 CSV 与 13C/1H 特征
-python main_cli.py train [参数...]          训练模型
-python main_cli.py eval [参数...]            F1 评估
-python main_cli.py dashboard [参数...]      启动训练看板
-python main_cli.py ab-test [参数...]        R4 / R5 架构 A/B 对比
+python console.py settings [--check]       打印 / 校验当前生效的配置
+python console.py cuda-info               s 检查 torch / CUDA / 显卡是否可用
+python console.py features                 从 parquet 生成 CSV 与 13C/1H 特征
+python console.py train [参数...]          训练模型
+python console.py eval [参数...]            F1 评估
+python console.py dashboard [参数...]      启动训练看板
+python console.py ab-test [参数...]        R4 / R5 架构 A/B 对比
 """
-
 
 def console_main():
     argv = sys.argv[1:]
