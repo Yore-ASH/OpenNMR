@@ -47,7 +47,7 @@ LOG_FIELDS = [
 def _get_device() -> torch.device:
     """解析训练设备"""
 
-    raw = str(SETTINGS.device).strip().lower()
+    raw = str(SETTINGS.device.train_device).strip().lower()
 
     if raw in ("", "auto"):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")

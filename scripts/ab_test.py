@@ -370,7 +370,7 @@ def main(argv=None):
         "archs": ",".join(args.archs),
         "loss": "focal(per_class_alpha=1)",
         "lr": SETTINGS.training.lr,
-        "device": str(SETTINGS.device),
+        "device": str(SETTINGS.device.train_device),
     }
 
     summary = write_report(results, out_root, config)

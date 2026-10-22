@@ -204,9 +204,14 @@ class ArchiveCfg:
 
 
 @dataclass
+class DeviceCfg:
+    train_device: str
+
+
+@dataclass
 class Settings:
     paths: PathsCfg
-    device: str
+    device: DeviceCfg
     features: FeaturesCfg
     labels: dict
     label_names: tuple
@@ -261,7 +266,7 @@ class Settings:
                 "train_data_dir": str(self.paths.train_data_dir),
                 "console_log_dir": str(self.paths.console_log_dir),
             },
-            "device": self.device,
+            "device": self.device.train_device,
             "features": {
                 "splits": list(self.features.splits),
                 "c13": {
@@ -584,7 +589,7 @@ def load_settings(settings_file: Path = None, local_file: Path = None) -> Settin
 
     settings = Settings(
         paths=paths,
-        device=_as_str(merged, "device.train_device", "auto"),
+        device=DeviceCfg(train_device=_as_str(merged, "device.train_device", "auto")),
         features=features,
         labels=labels,
         label_names=tuple(labels.keys()),

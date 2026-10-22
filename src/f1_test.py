@@ -73,7 +73,7 @@ SWEEP_FIELDS = [
 
 def _get_device() -> torch.device:
     """解析评估设备：auto 优先使用 CUDA，否则使用 CPU"""
-    raw = str(SETTINGS.device).strip().lower()
+    raw = str(SETTINGS.device.train_device).strip().lower()
 
     if raw in ("", "auto"):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
