@@ -66,6 +66,7 @@ DEFAULTS = {
         "epochs": 0,
         "workers": 2,
         "seed": 2026,
+        "save_resume_state": True,
         "focal": {"alpha": 0.25, "gamma": 2.0, "per_class_alpha": True},
         "lr_scheduler": {"name": "plateau", "factor": 0.5, "patience": 0},
     },
@@ -179,6 +180,7 @@ class TrainingCfg:
     epochs: int
     workers: int
     seed: int
+    save_resume_state: bool
     focal_alpha: float
     focal_gamma: float
     focal_per_class_alpha: bool
@@ -309,6 +311,7 @@ class Settings:
                 "epochs": self.training.epochs,
                 "workers": self.training.workers,
                 "seed": self.training.seed,
+                "save_resume_state": self.training.save_resume_state,
                 "focal_alpha": self.training.focal_alpha,
                 "focal_gamma": self.training.focal_gamma,
                 "focal_per_class_alpha": self.training.focal_per_class_alpha,
@@ -353,7 +356,7 @@ def _strip_comments(node):
 
 
 def _merge(base: dict, override: dict) -> dict:
-    """深合并：override 里的叶子值覆盖 base，dict 递归合并。"""
+    """深合并：override 里的叶子值覆盖 base,dict 递归合并。"""
 
     result = dict(base)
 
@@ -503,14 +506,14 @@ def _load_labels(cfg: dict):
     return labels, tuple(patterns)
 
 
-def load_settings(settings_file: Path = None, local_file: Path = None) -> Settings:
+def load_settings(settings_file: Path = None, local_file: Path = None) -> Settings: # type: ignore
     """读取并构建 SETTINGS"""
 
     settings_file = Path(settings_file) if settings_file else SETTINGS_FILE
     local_file = Path(local_file) if local_file else LOCAL_SETTINGS_FILE
 
-    merged = _merge(DEFAULTS, _strip_comments(_read_json(settings_file)))
-    merged = _merge(merged, _strip_comments(_read_json(local_file)))
+    merged = _merge(DEFAULTS, _strip_comments(_read_json(settings_file))) #type: ignore #我真受不了了:(
+    merged = _merge(merged, _strip_comments(_read_json(local_file))) # type: ignore
 
     paths = PathsCfg(
         root=ROOT,
@@ -567,6 +570,7 @@ def load_settings(settings_file: Path = None, local_file: Path = None) -> Settin
         epochs=_as_int(merged, "training.epochs", 0),
         workers=_as_int(merged, "training.workers", 2),
         seed=_as_int(merged, "training.seed", 2026),
+        save_resume_state=_as_bool(merged, "training.save_resume_state", True),
         focal_alpha=_as_float(merged, "training.focal.alpha", 0.25),
         focal_gamma=_as_float(merged, "training.focal.gamma", 2.0),
         focal_per_class_alpha=_as_bool(merged, "training.focal.per_class_alpha", True),

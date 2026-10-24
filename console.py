@@ -1,5 +1,5 @@
 """OpenNMR 控制台入口"""
-print("Welcome to use OpenNMR (From ASH).\n欢迎使用 OpenNMR (来自 ASH).")
+print("Thank you for using OpenNMR (From ASH).\n欢迎使用 OpenNMR (来自 ASH).")
 
 import subprocess
 import sys

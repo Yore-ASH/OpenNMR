@@ -313,6 +313,87 @@ def _set_seed(seed: int):
         torch.cuda.manual_seed_all(seed)
 
 
+RESUME_FORMAT_VERSION = 1
+
+def _save_resume_state(path, payload):
+    """保存续训状态文件"""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(payload, tmp)
+
+    os.replace(tmp, path)
+
+
+def _load_resume_state(path, device):
+    """加载续训状态文件"""
+
+    path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"指定状态文件不存在: {path}")
+
+    state = torch.load(path, map_location=device, weights_only=False)
+
+    if (not isinstance(state, dict)) or ("model" not in state):
+        raise ValueError(f"{path} 无效（缺少 model 字段）")
+
+    return state
+
+
+def _rng_snapshot():
+
+    import random
+
+    snapshot = {"torch": torch.get_rng_state(), "random": random.getstate()}
+
+    if torch.cuda.is_available():
+        snapshot["cuda"] = torch.cuda.get_rng_state_all()
+
+    return snapshot
+
+
+def _rng_restore(snapshot):
+
+    import random
+
+    if not snapshot:
+        return
+
+    try:
+        if snapshot.get("torch") is not None:
+            torch.set_rng_state(snapshot["torch"])
+
+        if snapshot.get("cuda") and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all(snapshot["cuda"])
+
+        if snapshot.get("random") is not None:
+            random.setstate(snapshot["random"])
+
+    except (RuntimeError, TypeError, ValueError):
+        pass
+
+
+def _resume_fingerprint(model, n_train, n_val):
+
+    h1 = SETTINGS.features.h1
+
+    return {
+        "arch": str(model.arch),
+        "n_features": int(model.n_features),
+        "n_classes": int(model.n_classes),
+        "n_1h": int(model.n_1h),
+        "h1_bins": int(model.h1_bins or 0),
+        "h1_channels": int(h1.channels),
+        "h1_scalars": int(h1.scalars),
+        "label_names": list(SETTINGS.label_names),
+        "n_train": int(n_train),
+        "n_val": int(n_val),
+    }
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="训练 NMR 多标签分类模型")
 
@@ -320,7 +401,7 @@ def parse_args(argv=None):
         "--epochs",
         type=int,
         default=None,
-        help="训练轮数；0 表示一直训练到 Ctrl+C（默认取 settings.json 的 training.epochs）",
+        help="训练轮数；0 表示一直训练到 KeyBroadInterrupt 事件",
     )
     parser.add_argument("--batch-size", type=int, default=None, help="batch 大小")
     parser.add_argument("--lr", type=float, default=None, help="学习率")
@@ -328,6 +409,13 @@ def parse_args(argv=None):
         "--init-from",
         default=None,
         help="用旧权重的 13C 卷积分支做热启动（只加载 conv.* 参数）",
+    )
+    parser.add_argument(
+        "--resume",
+        nargs="?",
+        const="auto",
+        default=None,
+        help="从 train_state.pt 续训（继承模型/优化器/调度器/轮数/best）",
     )
     parser.add_argument(
         "--workers",
@@ -369,6 +457,9 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+
+    if args.resume and args.init_from:
+        raise ValueError("--resume 与 --init-from 不能同时使用")
 
     SETTINGS.apply(
         {
@@ -413,10 +504,30 @@ def main(argv=None):
 
     best_path = model_dir / "model_13c_v1.pth"
     last_path = model_dir / "model_13c_last.pth"
+    state_path = model_dir / "train_state.pt"
 
-    run_id = make_run_id()
+    resume_path = None
+    resume_state = None
+
+    if args.resume:
+        resume_path = Path(args.resume) if str(args.resume) != "auto" else state_path
+        resume_state = _load_resume_state(resume_path, device)
+        print(
+            f"续训状态: {resume_path} | 已完成 {int(resume_state.get('epoch', 0))} 轮 | "
+            f"best_val_loss={resume_state.get('best_val_loss')}"
+        )
+
+    resume_fingerprint = (resume_state or {}).get("fingerprint", {}) or {}
+    model_arch = str(resume_fingerprint.get("arch") or SETTINGS.model.arch)
+
+    run_id = (
+        str(resume_state["run_id"])
+        if (resume_state is not None and resume_state.get("run_id"))
+        else make_run_id()
+    )
     started_at = datetime.now().isoformat(timespec="seconds")
-    run_start = time.time()
+    elapsed_offset = float(resume_state.get("elapsed_offset", 0.0)) if resume_state else 0.0
+    run_start = time.time() - elapsed_offset
 
     pin_memory = device.type == "cuda"
 
@@ -449,8 +560,13 @@ def main(argv=None):
     # 训练痕迹归档
     save_every_epoch = SETTINGS.archive.save_every_epoch
     epoch_metrics = SETTINGS.archive.epoch_metrics
+    save_state_enabled = bool(SETTINGS.training.save_resume_state)
 
     archive = TrainRun(SETTINGS.paths.train_data_dir, run_id)
+
+    if resume_state is not None and resume_state.get("run_started_at"):
+        archive.started_at = str(resume_state["run_started_at"])
+
     archive.begin(
         {
             "script": "src/train.py",
@@ -474,7 +590,7 @@ def main(argv=None):
             "h1_bins": h1_bins,
             "h1_channels": h1_channels,
             "h1_scalars": h1_scalars,
-            "arch": SETTINGS.model.arch,
+            "arch": model_arch,
             "head_channels": SETTINGS.model.r5_head_channels,
             "head_h1_channels": SETTINGS.model.r5_head_h1_channels,
             "weight_decay": weight_decay,
@@ -482,6 +598,9 @@ def main(argv=None):
             "seed": seed,
             "save_every_epoch": save_every_epoch,
             "epoch_metrics": epoch_metrics,
+            "resume_from": str(resume_path) if resume_path is not None else "",
+            "resume_epoch": int(resume_state.get("epoch", 0)) if resume_state is not None else 0,
+            "save_resume_state": bool(SETTINGS.training.save_resume_state),
         }
     )
     print(f"训练痕迹目录: {archive.run_dir}")
@@ -518,7 +637,7 @@ def main(argv=None):
         h1_bins = h1_bins if h1_bins else None,
         h1_channels = h1_channels,
         h1_scalars = h1_scalars,
-        arch = SETTINGS.model.arch,
+        arch = model_arch,
     ).to(device)
 
     n_params = sum(p.numel() for p in model.parameters())
@@ -527,7 +646,17 @@ def main(argv=None):
         f"分类头输入 {model.head_input_dim:,} 维 | seed={seed}"
     )
 
-    if args.init_from:
+    if resume_state is not None:
+        try:
+            model.load_state_dict(resume_state["model"])
+        except (KeyError, RuntimeError) as exc:
+            raise RuntimeError(f"续训状态里的模型权重与当前结构不匹配: {exc}") from exc
+        print(
+            f"已恢复模型权重: {resume_path.name} "
+            f"(epoch {int(resume_state.get('epoch', 0))})"
+        )
+
+    elif args.init_from:
         init_path = Path(args.init_from)
 
         if not init_path.exists():
@@ -578,6 +707,46 @@ def main(argv=None):
     else:
         print("LR scheduler: 无（固定学习率）")
 
+    if resume_state is not None:
+
+        if str(SETTINGS.model.arch) != model_arch:
+            print(
+                f"[提示] settings.json 的 arch={SETTINGS.model.arch}，"
+                f"续训状态是 arch={model_arch}，按续训状态执行"
+            )
+
+        fingerprint_now = _resume_fingerprint(model, n_train, n_val)
+
+        mismatches = [
+            f"{key}: 状态={resume_fingerprint.get(key)!r} 当前={fingerprint_now.get(key)!r}"
+            for key in fingerprint_now
+            if resume_fingerprint.get(key) != fingerprint_now.get(key)
+        ]
+
+        if mismatches:
+            raise RuntimeError(
+                "续训状态与当前配置/数据不一致，已拒绝续训：\n  "
+                + "\n  ".join(mismatches)
+            )
+
+        try:
+            optimizer.load_state_dict(resume_state["optimizer"])
+        except (KeyError, ValueError, RuntimeError) as exc:
+            raise RuntimeError(f"优化器状态恢复失败: {exc}") from exc
+
+        if (scheduler is not None) and (resume_state.get("scheduler") is not None):
+            try:
+                scheduler.load_state_dict(resume_state["scheduler"])
+            except (KeyError, ValueError, RuntimeError) as exc:
+                print(f"[警告] 学习率调度器状态恢复失败，按当前 lr 继续: {exc}")
+
+        _rng_restore(resume_state.get("rng"))
+
+        print(
+            f"已恢复优化器/调度器，学习率 = "
+            f"{float(optimizer.param_groups[0]['lr']):.6g}"
+        )
+
     print(f"运行 ID: {run_id}")
     device_desc = str(device)
 
@@ -616,6 +785,11 @@ def main(argv=None):
     best_epoch = 0
     epochs_done = 0
     stopped_reason = "max_epochs"
+
+    if resume_state is not None:
+        best_val_loss = float(resume_state.get("best_val_loss") or float("inf"))
+        best_epoch = int(resume_state.get("best_epoch") or 0)
+        epochs_done = int(resume_state.get("epoch") or 0)
 
     def log_row(epoch, train_loss, val_loss, improved, epoch_seconds, interrupted):
         """把当前 epoch 的数据追加进 CSV 并立即 flush，保证 Ctrl+C 也不丢记录"""
@@ -689,6 +863,32 @@ def main(argv=None):
 
         return archived
 
+    def save_resume(epoch_done, best_loss, best_ep):
+
+        if not save_state_enabled:
+            return
+
+        try:
+            _save_resume_state(
+                state_path,
+                {
+                    "format_version": RESUME_FORMAT_VERSION,
+                    "run_id": run_id,
+                    "run_started_at": archive.started_at,
+                    "epoch": int(epoch_done),
+                    "best_val_loss": None if math.isinf(best_loss) else float(best_loss),
+                    "best_epoch": int(best_ep),
+                    "elapsed_offset": float(time.time() - run_start),
+                    "model": model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                    "rng": _rng_snapshot(),
+                    "fingerprint": _resume_fingerprint(model, n_train, n_val),
+                },
+            )
+        except OSError as exc:
+            print(f"[警告] 续训状态保存失败: {exc}")
+
     try:
         while True:
 
@@ -726,6 +926,7 @@ def main(argv=None):
             if interrupted:
                 torch.save(model.state_dict(), last_path)
                 archive_partial(epoch, "train_interrupted", train_loss, time.time() - epoch_start)
+                save_resume(epochs_done, best_val_loss, best_epoch)
                 log_row(
                     epoch,
                     train_loss,
@@ -759,6 +960,7 @@ def main(argv=None):
             if interrupted:
                 torch.save(model.state_dict(), last_path)
                 archive_partial(epoch, "val_interrupted", train_loss, time.time() - epoch_start)
+                save_resume(epochs_done, best_val_loss, best_epoch)
                 log_row(
                     epoch,
                     train_loss,
@@ -875,6 +1077,8 @@ def main(argv=None):
             if scheduler is not None:
                 scheduler.step(val_loss)
 
+            save_resume(epochs_done, best_val_loss, best_epoch)
+
             _write_status(
                 state = "running",
                 epoch = epoch,
@@ -891,6 +1095,8 @@ def main(argv=None):
         print("\n收到 Ctrl+C，正在保存并退出...")
 
     finally:
+        save_resume(epochs_done, best_val_loss, best_epoch)
+
         history_fh.close()
 
         _write_status(
@@ -907,6 +1113,8 @@ def main(argv=None):
             "finished_at": datetime.now().isoformat(timespec="seconds"),
             "stopped_reason": stopped_reason,
             "epochs_done": epochs_done,
+            "resume_from": str(resume_path) if resume_path is not None else "",
+            "resume_epoch": int(resume_state.get("epoch", 0)) if resume_state is not None else 0,
             "best_epoch": best_epoch,
             "best_val_loss": None if math.isinf(best_val_loss) else best_val_loss,
             "total_seconds": round(time.time() - run_start, 2),

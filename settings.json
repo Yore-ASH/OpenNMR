@@ -74,6 +74,7 @@
 		"epochs": 0,
 		"workers": 2,
 		"seed": 2026,
+		"save_resume_state": true,
 		"focal": {
 			"alpha": 0.25,
 			"gamma": 2.0,
